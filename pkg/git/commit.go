@@ -1,8 +1,21 @@
 package git
 
 import (
+	"fmt"
+	"regexp"
 	"strings"
 )
+
+type MessagePart int
+
+const (
+	Subject MessagePart = iota
+	Body
+	Footer
+)
+
+// msgParser parses a git commit message into subject, body, and footer
+var msgParser = regexp.MustCompile(`^(?P<Subject>(?m)(?:^.+$)+)(?-m)(?:(?:(?:\r?\n){2})?(?P<Body>(?m)(?:^.+$(?:\r?\n)?)+)?(?-m)(?:(?:\r?\n){2})?(?P<Footer>(?m)(?:^.+$(?:\r?\n)?)+))?(?-m)$`)
 
 type CommitMessage struct {
 	// Subject is the first line of the commit message, and usually has strict formatting rules
@@ -14,35 +27,34 @@ type CommitMessage struct {
 }
 
 func ParseFromString(rawMessage string) (CommitMessage, error) {
-	ret := CommitMessage{}
-	lines := strings.Split(rawMessage, `\n`)
-	numLines := len(lines)
-
-	ret.Subject = lines[0]
-	if numLines <= 2 {
-		return ret, nil
+	result := make(map[string]string)
+	match := msgParser.FindStringSubmatch(rawMessage)
+	if match == nil {
+		return CommitMessage{Body: []string{rawMessage}}, fmt.Errorf("poorly formatted commit message")
 	}
 
-	// for now, footer is limited
-	var temp []string
-	for i := numLines - 1; i >= 0; i-- {
-		line := lines[i]
-		if strings.TrimSpace(line) == "" {
-			break
+	for i, name := range msgParser.SubexpNames() {
+		if i != 0 && name != "" {
+			result[name] = match[i]
 		}
-		// if signed-off-by or Bug: (?)
-		temp = append(temp, line)
-	}
-	// reverse, reverse
-	ret.Footer = make([]string, len(temp))
-	for i, line := range temp {
-		ret.Footer[len(temp)-1-i] = line
 	}
 
-	// by rule, blank line separates subject from body
-	if strings.TrimSpace(lines[1]) == "" {
-		ret.Body = lines[2:]
+	var body []string = nil
+	if result["Body"] != "" {
+		body = strings.Split(result["Body"], "\n")
+	}
+	var footer []string = nil
+	if result["Footer"] != "" {
+		footer = strings.Split(result["Footer"], "\n")
 	}
 
-	return ret, nil
+	return CommitMessage{
+		Subject: result["Subject"],
+		Body:    body,
+		Footer:  footer,
+	}, nil
+}
+
+func (c CommitMessage) String() string {
+	return fmt.Sprintf("%s\n\n%s\n\n%s", c.Subject, strings.Join(c.Body, "\n"), strings.Join(c.Footer, "n"))
 }
